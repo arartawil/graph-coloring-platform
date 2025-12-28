@@ -1,0 +1,61 @@
+# Core Web Framework
+streamlit==1.29.0
+
+# Graph Operations
+networkx==3.2.1
+
+# Data Manipulation
+numpy==1.24.3
+pandas==2.1.4
+
+# Visualization
+matplotlib==3.8.2
+plotly==5.18.0
+seaborn==0.13.0
+
+# Scientific Computing
+scipy==1.11.4
+
+# Machine Learning
+scikit-learn==1.3.2
+
+# Deep Learning & Reinforcement Learning
+torch==2.1.2
+torchvision==0.16.2
+stable-baselines3==2.2.1
+gymnasium==0.29.1
+
+# Additional ML/RL Dependencies
+tensorboard==2.15.1
+cloudpickle==3.0.0
+
+# Utility Libraries
+pillow==10.1.0
+requests==2.31.0
+python-dateutil==2.8.2
+
+# Performance & Optimization
+numba==0.58.1
+joblib==1.3.2
+
+# Data Validation
+pydantic==2.5.3
+
+# Progress Bars
+tqdm==4.66.1
+
+# Color Utilities
+colorama==0.4.6
+
+# File Handling
+openpyxl==3.1.2
+xlrd==2.0.1
+
+# Testing (Optional but recommended)
+pytest==7.4.3
+pytest-cov==4.1.0
+
+# Code Quality (Optional but recommended)
+black==23.12.1
+flake8==7.0.0
+mypy==1.8.0
