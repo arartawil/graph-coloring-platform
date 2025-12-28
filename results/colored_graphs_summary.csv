@@ -1,0 +1,37 @@
+puzzle,graph_id,nodes,edges,algorithm,colors_used
+Sudoku (9×9),sudoku_9x9_medium,81,810,Greedy,14
+Sudoku (9×9),sudoku_9x9_medium,81,810,DSatur,10
+Sudoku (9×9),sudoku_9x9_medium,81,810,Welsh-Powell,14
+Sudoku (9×9),sudoku_9x9_medium,81,810,Smallest Last,14
+Sudoku (9×9),sudoku_9x9_medium,81,810,Largest First,14
+Sudoku (9×9),sudoku_9x9_medium,81,810,Iterated Greedy,11
+N-Queens (n=8),nqueens_8,64,728,Greedy,13
+N-Queens (n=8),nqueens_8,64,728,DSatur,12
+N-Queens (n=8),nqueens_8,64,728,Welsh-Powell,13
+N-Queens (n=8),nqueens_8,64,728,Smallest Last,15
+N-Queens (n=8),nqueens_8,64,728,Largest First,13
+N-Queens (n=8),nqueens_8,64,728,Iterated Greedy,12
+Latin Square (5×5),latin_square_5,25,100,Greedy,8
+Latin Square (5×5),latin_square_5,25,100,DSatur,5
+Latin Square (5×5),latin_square_5,25,100,Welsh-Powell,8
+Latin Square (5×5),latin_square_5,25,100,Smallest Last,8
+Latin Square (5×5),latin_square_5,25,100,Largest First,8
+Latin Square (5×5),latin_square_5,25,100,Iterated Greedy,6
+Map Coloring (USA),map_coloring_usa,17,35,Greedy,4
+Map Coloring (USA),map_coloring_usa,17,35,DSatur,4
+Map Coloring (USA),map_coloring_usa,17,35,Welsh-Powell,4
+Map Coloring (USA),map_coloring_usa,17,35,Smallest Last,4
+Map Coloring (USA),map_coloring_usa,17,35,Largest First,4
+Map Coloring (USA),map_coloring_usa,17,35,Iterated Greedy,4
+Futoshiki (5×5),futoshiki_5x5,25,200,Greedy,8
+Futoshiki (5×5),futoshiki_5x5,25,200,DSatur,5
+Futoshiki (5×5),futoshiki_5x5,25,200,Welsh-Powell,8
+Futoshiki (5×5),futoshiki_5x5,25,200,Smallest Last,8
+Futoshiki (5×5),futoshiki_5x5,25,200,Largest First,8
+Futoshiki (5×5),futoshiki_5x5,25,200,Iterated Greedy,6
+Random Graph (Erdős–Rényi),random_erdos_renyi_20,20,29,Greedy,4
+Random Graph (Erdős–Rényi),random_erdos_renyi_20,20,29,DSatur,3
+Random Graph (Erdős–Rényi),random_erdos_renyi_20,20,29,Welsh-Powell,4
+Random Graph (Erdős–Rényi),random_erdos_renyi_20,20,29,Smallest Last,4
+Random Graph (Erdős–Rényi),random_erdos_renyi_20,20,29,Largest First,4
+Random Graph (Erdős–Rényi),random_erdos_renyi_20,20,29,Iterated Greedy,4

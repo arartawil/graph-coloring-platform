@@ -60,7 +60,9 @@ class DatabaseManager:
             sqlite3.Connection object
         """
         try:
-            self.conn = sqlite3.connect(self.db_path)
+            # Allow use across Streamlit threads/reruns by disabling same-thread check.
+            # Concurrency is minimal; SQLite serialized mode is acceptable here.
+            self.conn = sqlite3.connect(self.db_path, check_same_thread=False)
             self.conn.row_factory = sqlite3.Row  # Enable column access by name
             self.conn.execute("PRAGMA foreign_keys = ON")  # Enable foreign keys
             logger.info(f"Connected to database: {self.db_path}")

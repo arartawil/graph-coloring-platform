@@ -103,8 +103,7 @@ def visualize_graph_plotly(graph, coloring=None, title="Graph", positions=None):
             colorbar=dict(
                 thickness=15,
                 title='Color',
-                xanchor='left',
-                titleside='right'
+                xanchor='left'
             ),
             line=dict(width=2, color='white')
         )

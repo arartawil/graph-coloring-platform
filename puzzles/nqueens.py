@@ -8,38 +8,49 @@ import plotly.graph_objects as go
 from typing import List, Tuple, Dict, Optional
 import random
 
+
+class NQueensPuzzle:
+    """N-Queens puzzle wrapper providing a graph representation for coloring."""
+
+    def __init__(self, n: int = 8):
+        if n < 4:
+            raise ValueError("n must be at least 4")
+        self.n = n
+        # A solved board is stored for reference/visualization; coloring uses the conflict graph.
+        self.solution = generate_nqueens(n)
+        self.graph = nqueens_to_graph(n)
+        # Use board coordinates as positions for nicer plotting.
+        positions = {(r, c): (c, -r) for r in range(n) for c in range(n)}
+        nx.set_node_attributes(self.graph, positions, "pos")
+
+    def to_graph(self) -> nx.Graph:
+        """Return the conflict graph for this N-Queens instance."""
+        return self.graph
+
 # ---------------------------------------------------------------------------
 # Generation
 # ---------------------------------------------------------------------------
 
 def generate_nqueens(n: int = 8) -> List[int]:
     """
-    Generate an N-Queens board configuration.
+    Generate a (ideally conflict-free) N-Queens board configuration.
 
-    Args:
-        n: Board size (supports 8, 16, 32, 64, 100)
-
-    Returns:
-        List where index = row, value = column of the queen.
-
-    Example:
-        >>> board = generate_nqueens(8)
-        >>> len(board)
-        8
+    Supports general n >= 4, using constructive patterns when available,
+    backtracking for moderate n, and min-conflicts for larger boards.
     """
-    if n not in [8, 16, 32, 64, 100]:
-        raise ValueError("n must be one of [8, 16, 32, 64, 100]")
+    if n < 4:
+        raise ValueError("n must be at least 4")
 
-    # Use a known constructive solution for even n (no conflicts)
-    def constructive_solution(n: int) -> List[int]:
-        if n % 2 == 0 and n % 6 not in (2, 3):
-            evens = list(range(2, n + 1, 2))
-            odds = list(range(1, n + 1, 2))
-            return [c - 1 for c in evens + odds]
-        # Otherwise, fall back to heuristic search
-        return heuristic_nqueens(n)
+    # Constructive pattern for many even n values (no conflicts)
+    if n % 2 == 0 and n % 6 not in (2, 3):
+        evens = list(range(2, n + 1, 2))
+        odds = list(range(1, n + 1, 2))
+        return [c - 1 for c in evens + odds]
 
-    return constructive_solution(n)
+    # For modest sizes, use exact backtracking; otherwise heuristic
+    if n <= 16:
+        return solve_nqueens_backtracking(n)
+    return heuristic_nqueens(n)
 
 
 def heuristic_nqueens(n: int, max_iter: int = 20000) -> List[int]:

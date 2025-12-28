@@ -29,6 +29,10 @@ import time
 import traceback
 from typing import Optional, Dict, Any, List
 
+import networkx as nx
+import pandas as pd
+import plotly.express as px
+
 # Add project root to path
 sys.path.append(str(Path(__file__).parent))
 
@@ -38,7 +42,7 @@ try:
     from database.database import DatabaseManager, initialize_database
     from algorithms import (
         greedy_coloring, dsatur_coloring, welsh_powell_coloring,
-        tabu_search_coloring, dqn_coloring
+        tabu_search_coloring, dqn_coloring, DQN_AVAILABLE
     )
     from puzzles import (
         SudokuPuzzle, NQueensPuzzle, KakuroPuzzle, FutoshikiPuzzle,
@@ -842,221 +846,286 @@ def save_generated_puzzle(generated, stats):
 # Page: Algorithms
 # ============================================================================
 
+
+def _deserialize_graph(data: Dict[str, Any]) -> nx.Graph:
+    graph = nx.Graph()
+    if not data:
+        return graph
+    graph.add_nodes_from(data.get("nodes", []))
+    graph.add_edges_from([tuple(edge) for edge in data.get("edges", [])])
+    coords = data.get("coordinates", {})
+    if coords:
+        nx.set_node_attributes(graph, {k: tuple(v) for k, v in coords.items()}, "pos")
+    if data.get("chromatic_number"):
+        graph.graph["chromatic_number"] = data["chromatic_number"]
+    return graph
+
+
+def _load_puzzle_graph(puzzle: Dict[str, Any]) -> nx.Graph:
+    raw = puzzle.get("graph_data")
+    if isinstance(raw, str):
+        raw = json.loads(raw)
+    return _deserialize_graph(raw)
+
+
+@st.cache_data(show_spinner=False)
+def _run_algorithm_cached(algo_name: str, nodes: tuple, edges: tuple, chromatic: Optional[int] = None):
+    g = nx.Graph()
+    g.add_nodes_from(nodes)
+    g.add_edges_from(edges)
+    if chromatic is not None:
+        g.graph["chromatic_number"] = chromatic
+
+    algo_map = {
+        "greedy": greedy_coloring,
+        "dsatur": dsatur_coloring,
+        "welsh_powell": welsh_powell_coloring,
+        "tabu_search": tabu_search_coloring,
+    }
+    func = algo_map[algo_name]
+
+    start = time.perf_counter()
+    coloring = func(g)
+    exec_time = time.perf_counter() - start
+    valid = validate_coloring(g, coloring)
+    colors_used = count_colors(coloring)
+    chromatic_val = g.graph.get("chromatic_number")
+    optimal = chromatic_val is not None and colors_used == chromatic_val
+
+    return {
+        "algorithm": algo_name,
+        "coloring": coloring,
+        "colors_used": colors_used,
+        "execution_time": exec_time,
+        "is_valid": valid,
+        "optimal": optimal,
+        "chromatic_number": chromatic_val,
+    }
+
+
 def page_algorithms():
-    """Render algorithms page"""
+    """Render algorithms page with comparison tools."""
     st.title("⚙️ Algorithms")
-    
+
+    db = get_database()
+    user_puzzles = []
+    if db and st.session_state.user_id:
+        try:
+            user_puzzles = db.get_user_puzzles(st.session_state.user_id)
+        except Exception:
+            user_puzzles = []
+
+    with st.expander("Select puzzle", expanded=True):
+        options = ["Current session"] + [f"{p['id']}: {p['name']}" for p in user_puzzles]
+        choice = st.selectbox("Puzzle", options)
+        if choice != "Current session":
+            selected_id = int(choice.split(":")[0])
+            puzzle = next((p for p in user_puzzles if p["id"] == selected_id), None)
+            if puzzle:
+                loaded_graph = _load_puzzle_graph(puzzle)
+                st.session_state.current_graph = loaded_graph
+                st.session_state.current_positions = nx.get_node_attributes(loaded_graph, "pos") or None
+                st.session_state.selected_puzzle = selected_id
+                chrom = puzzle.get("chromatic_number")
+                if chrom:
+                    loaded_graph.graph["chromatic_number"] = chrom
+                st.info(f"Loaded puzzle {puzzle['name']} (vertices: {loaded_graph.number_of_nodes()})")
+
     if st.session_state.current_graph is None:
         st.warning("⚠️ No puzzle selected! Please create or load a puzzle first.")
-        st.info("Go to the Puzzles page to create or select a puzzle.")
         return
-    
-    # Display current graph stats
-    stats = get_graph_stats(st.session_state.current_graph)
-    
-    col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Vertices", stats['num_nodes'])
-    col2.metric("Edges", stats['num_edges'])
-    col3.metric("Density", f"{stats['density']:.3f}")
-    col4.metric("Avg Degree", f"{stats.get('avg_degree', 0):.2f}")
-    
+
+    graph = st.session_state.current_graph
+    stats = get_graph_stats(graph)
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Vertices", stats.get("num_nodes", 0))
+    c2.metric("Edges", stats.get("num_edges", 0))
+    c3.metric("Density", f"{stats.get('density', 0):.3f}")
+    c4.metric("Avg Degree", f"{stats.get('avg_degree', 0):.2f}")
+
     st.markdown("---")
-    
-    tab1, tab2 = st.tabs(["Single Algorithm", "Compare Algorithms"])
-    
-    with tab1:
-        render_single_algorithm()
-    
-    with tab2:
-        render_algorithm_comparison()
 
+    with st.expander("Graph preview", expanded=False):
+        try:
+            preview_fig = visualize_graph_plotly(graph, positions=st.session_state.current_positions, title="Selected puzzle")
+            st.plotly_chart(preview_fig, use_container_width=True)
+        except Exception as e:
+            st.caption(f"Preview unavailable: {e}")
 
-def render_single_algorithm():
-    """Render single algorithm execution"""
-    st.subheader("Run Single Algorithm")
-    
-    col1, col2 = st.columns([2, 1])
-    
-    with col1:
-        algorithm = st.selectbox(
-            "Select Algorithm",
-            ["greedy", "dsatur", "welsh_powell", "tabu_search", "dqn"],
-            index=0
-        )
-        
-        st.session_state.selected_algorithm = algorithm
-        
-        # Algorithm description
-        algorithm_info = {
-            "greedy": "Fast and simple. Colors nodes sequentially with the first available color.",
-            "dsatur": "Uses degree of saturation heuristic. Often produces better results than greedy.",
-            "welsh_powell": "Sorts nodes by degree before coloring. Good for many graph types.",
-            "tabu_search": "Metaheuristic approach. May find better solutions but takes longer.",
-            "dqn": "Deep Q-Network reinforcement learning approach (experimental)."
-        }
-        
-        st.info(f"ℹ️ {algorithm_info.get(algorithm, '')}")
-    
-    with col2:
-        st.write("")
-        st.write("")
-        if st.button("▶️ Run Algorithm", use_container_width=True, type="primary"):
-            run_single_algorithm(algorithm)
-    
-    # Display last result
-    if st.session_state.last_result:
+    st.subheader("Select algorithms")
+    select_all = st.checkbox("Select all", value=True)
+    col_a, col_b, col_c = st.columns(3)
+    with col_a:
+        use_greedy = st.checkbox("Greedy", value=select_all)
+        use_dsatur = st.checkbox("DSatur", value=select_all)
+    with col_b:
+        use_wp = st.checkbox("Welsh-Powell", value=select_all)
+        use_tabu = st.checkbox("Tabu Search", value=select_all)
+    with col_c:
+        if DQN_AVAILABLE:
+            use_dqn = st.checkbox("DQN (experimental)", value=False)
+        else:
+            st.checkbox("DQN (requires torch)", value=False, disabled=True)
+            st.caption("Install torch to enable DQN.")
+            use_dqn = False
+
+    if select_all:
+        use_greedy = use_dsatur = use_wp = use_tabu = True
+
+    selected_algos = [
+        name for name, flag in [
+            ("greedy", use_greedy),
+            ("dsatur", use_dsatur),
+            ("welsh_powell", use_wp),
+            ("tabu_search", use_tabu),
+            ("dqn", use_dqn),
+        ] if flag
+    ]
+
+    st.subheader("Run comparison")
+    run_col, save_col = st.columns([2, 1])
+    with run_col:
+        run_btn = st.button("🔄 Run selected algorithms", type="primary")
+    with save_col:
+        save_to_db = st.checkbox("Save results to DB", value=False)
+
+    results = []
+    if run_btn and selected_algos:
+        nodes = tuple(graph.nodes())
+        edges = tuple((u, v) for u, v in graph.edges())
+        chromatic_number = graph.graph.get("chromatic_number")
+        progress = st.progress(0)
+        for idx, algo in enumerate(selected_algos):
+            if algo == "dqn":
+                if not DQN_AVAILABLE:
+                    st.warning("DQN is not available. Install torch to enable.")
+                    continue
+                start = time.perf_counter()
+                coloring = dqn_coloring(graph)
+                exec_time = time.perf_counter() - start
+                valid = validate_coloring(graph, coloring)
+                res = {
+                    "algorithm": "dqn",
+                    "coloring": coloring,
+                    "colors_used": count_colors(coloring),
+                    "execution_time": exec_time,
+                    "is_valid": valid,
+                    "optimal": None,
+                    "chromatic_number": graph.graph.get("chromatic_number"),
+                }
+            else:
+                res = _run_algorithm_cached(algo, nodes, edges, chromatic_number)
+            results.append(res)
+            progress.progress((idx + 1) / len(selected_algos))
+
+        st.session_state.last_result = results
+
+        if save_to_db and db and st.session_state.selected_puzzle:
+            for res in results:
+                try:
+                    db.save_result(
+                        puzzle_id=st.session_state.selected_puzzle,
+                        user_id=st.session_state.user_id,
+                        algorithm_name=res["algorithm"],
+                        colors_used=res["colors_used"],
+                        execution_time=res["execution_time"],
+                        coloring_result=res["coloring"],
+                        is_optimal=res.get("optimal", False),
+                        is_valid=res.get("is_valid", True),
+                    )
+                except Exception:
+                    pass
+
+    if not results and st.session_state.get("last_result"):
+        results = st.session_state.last_result
+
+    if results:
         st.markdown("---")
         st.subheader("📊 Results")
-        display_result(st.session_state.last_result)
-
-
-def render_algorithm_comparison():
-    """Render algorithm comparison interface"""
-    st.subheader("Compare Multiple Algorithms")
-    
-    algorithms = st.multiselect(
-        "Select Algorithms to Compare",
-        ["greedy", "dsatur", "welsh_powell", "tabu_search"],
-        default=["greedy", "dsatur", "welsh_powell"]
-    )
-    
-    if st.button("🔄 Run Comparison", type="primary"):
-        if algorithms:
-            run_algorithm_comparison(algorithms)
-        else:
-            st.warning("Please select at least one algorithm")
-
-
-def run_single_algorithm(algorithm_name: str):
-    """Execute a single algorithm"""
-    try:
-        with st.spinner(f"Running {algorithm_name}..."):
-            # Get algorithm function
-            algo_map = {
-                'greedy': greedy_coloring,
-                'dsatur': dsatur_coloring,
-                'welsh_powell': welsh_powell_coloring,
-                'tabu_search': tabu_search_coloring,
-                'dqn': dqn_coloring
+        df = pd.DataFrame([
+            {
+                "algorithm": r["algorithm"],
+                "colors_used": r["colors_used"],
+                "execution_time": r["execution_time"],
+                "optimal": r.get("optimal"),
+                "valid": r.get("is_valid"),
             }
-            
-            algo_func = algo_map[algorithm_name]
-            
-            # Time execution
-            start_time = time.time()
-            coloring = algo_func(st.session_state.current_graph)
-            execution_time = time.time() - start_time
-            
-            # Validate and count colors
-            is_valid = validate_coloring(st.session_state.current_graph, coloring)
-            num_colors = count_colors(coloring)
-            
-            # Store result
-            result = {
-                'algorithm': algorithm_name,
-                'coloring': coloring,
-                'colors_used': num_colors,
-                'execution_time': execution_time,
-                'is_valid': is_valid,
-                'graph': st.session_state.current_graph
-            }
-            
-            st.session_state.last_result = result
-            st.session_state.current_coloring = coloring
-            
-            st.success(f"✅ Algorithm completed in {execution_time:.4f} seconds!")
-            st.rerun()
-    
-    except Exception as e:
-        st.error(f"❌ Error running algorithm: {e}")
-        st.code(traceback.format_exc())
+            for r in results
+        ])
 
+        best_idx = df["colors_used"].idxmin()
+        df_sorted = df.sort_values(["colors_used", "execution_time"])
+        st.dataframe(df_sorted, use_container_width=True)
 
-def run_algorithm_comparison(algorithms: List[str]):
-    """Run multiple algorithms and compare"""
-    try:
-        results = []
-        
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        for idx, algo_name in enumerate(algorithms):
-            status_text.text(f"Running {algo_name}...")
-            
-            algo_map = {
-                'greedy': greedy_coloring,
-                'dsatur': dsatur_coloring,
-                'welsh_powell': welsh_powell_coloring,
-                'tabu_search': tabu_search_coloring,
-                'dqn': dqn_coloring
-            }
-            
-            algo_func = algo_map[algo_name]
-            
-            start_time = time.time()
-            coloring = algo_func(st.session_state.current_graph)
-            execution_time = time.time() - start_time
-            
-            is_valid = validate_coloring(st.session_state.current_graph, coloring)
-            num_colors = count_colors(coloring)
-            
-            results.append({
-                'algorithm': algo_name,
-                'colors_used': num_colors,
-                'time': execution_time,
-                'valid': is_valid
-            })
-            
-            progress_bar.progress((idx + 1) / len(algorithms))
-        
-        status_text.text("Comparison complete!")
-        
-        # Display comparison
-        st.markdown("---")
-        st.subheader("📊 Comparison Results")
-        
-        import pandas as pd
-        df = pd.DataFrame(results)
-        
-        col1, col2 = st.columns([2, 1])
-        
-        with col1:
-            st.dataframe(df, use_container_width=True)
-        
-        with col2:
-            best_colors = df.loc[df['colors_used'].idxmin()]
-            fastest = df.loc[df['time'].idxmin()]
-            
-            st.metric("Best (Colors)", f"{best_colors['algorithm']}: {best_colors['colors_used']}")
-            st.metric("Fastest", f"{fastest['algorithm']}: {fastest['time']:.4f}s")
-        
-        # Visualize comparison
+        best_row = df.loc[best_idx]
+        b1, b2 = st.columns(2)
+        b1.metric("Fewest colors", f"{best_row['algorithm']} ({best_row['colors_used']})")
+        fastest = df.loc[df["execution_time"].idxmin()]
+        b2.metric("Fastest", f"{fastest['algorithm']} ({fastest['execution_time']:.4f}s)")
+
+        # Best solution highlight
+        best_coloring = results[best_idx].get("coloring", {}) if isinstance(best_idx, int) else results[0].get("coloring", {})
+        st.markdown("### Best solution")
+        best_fig = None
         try:
-            fig = plot_algorithm_comparison(df)
-            st.pyplot(fig)
+            best_fig = visualize_graph_plotly(graph, best_coloring, title=f"Best: {best_row['algorithm'].upper()}", positions=st.session_state.current_positions)
+            st.plotly_chart(best_fig, use_container_width=True)
         except Exception as e:
-            st.warning(f"Could not generate comparison plot: {e}")
-    
-    except Exception as e:
-        st.error(f"Error in comparison: {e}")
+            st.caption(f"Best visualization error: {e}")
 
+        # Visualizations
+        st.subheader("Visualizations")
+        viz_cols = st.columns(len(results))
+        for idx, res in enumerate(results):
+            with viz_cols[idx]:
+                try:
+                    fig = visualize_graph_plotly(graph, res["coloring"], title=res["algorithm"].upper(), positions=st.session_state.current_positions)
+                    st.plotly_chart(fig, use_container_width=True)
+                    try:
+                        img = fig.to_image(format="png")
+                        st.download_button(
+                            f"⬇️ {res['algorithm']} image",
+                            data=img,
+                            file_name=f"{res['algorithm']}_coloring.png",
+                            mime="image/png",
+                            key=f"download_{res['algorithm']}_{idx}"
+                        )
+                    except Exception:
+                        st.caption("Install kaleido to export images.")
+                except Exception as e:
+                    st.caption(f"Viz error: {e}")
 
-def display_result(result: Dict[str, Any]):
-    """Display algorithm result"""
-    col1, col2, col3 = st.columns(3)
-    
-    col1.metric("Colors Used", result['colors_used'])
-    col2.metric("Execution Time", f"{result['execution_time']:.4f}s")
-    col3.metric("Valid", "✅" if result['is_valid'] else "❌")
-    
-    # Visualize
-    try:
-        with st.expander("🎨 View Coloring Visualization", expanded=True):
-            fig = visualize_graph_plotly(result['graph'], result['coloring'], 
-                                        title=f"{result['algorithm'].upper()} Coloring")
-            st.plotly_chart(fig, use_container_width=True)
-    except Exception as e:
-        st.warning(f"Visualization error: {e}")
+        scatter_fig = px.scatter(
+            df,
+            x="execution_time",
+            y="colors_used",
+            color="algorithm",
+            title="Performance (time vs colors)",
+        )
+        st.plotly_chart(scatter_fig, use_container_width=True)
+
+        # Color distribution for best solution
+        if best_coloring:
+            counts = pd.Series(best_coloring).value_counts().sort_index()
+            hist_fig = px.bar(x=counts.index, y=counts.values, labels={"x": "Color", "y": "Frequency"}, title="Color distribution (best)")
+            st.plotly_chart(hist_fig, use_container_width=True)
+
+        # Export options
+        csv_data = df.to_csv(index=False).encode("utf-8")
+        st.download_button("⬇️ Download CSV", data=csv_data, file_name="algorithm_comparison.csv", mime="text/csv")
+
+        try:
+            image_bytes = scatter_fig.to_image(format="png")
+            st.download_button("⬇️ Download performance chart", data=image_bytes, file_name="performance.png", mime="image/png")
+        except Exception:
+            st.caption("Install kaleido to enable image exports.")
+
+        if best_fig:
+            try:
+                best_image = best_fig.to_image(format="png")
+                st.download_button("⬇️ Download best coloring image", data=best_image, file_name="best_coloring.png", mime="image/png")
+            except Exception:
+                st.caption("Install kaleido to export coloring images.")
 
 
 # ============================================================================
